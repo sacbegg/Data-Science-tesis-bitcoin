@@ -1,5 +1,3 @@
-#!
-
 #Libraries
 ###################################################################
 library(xts)
@@ -27,7 +25,7 @@ if (FALSE){
   tf$constant("Hellow Tensorflow")
 }
 
-###################################################################
+##################### ##############################################
 #Data processing
 ###################################################################
  
@@ -37,7 +35,6 @@ btc_median <- btc_median['/2021-03-09']
 
 #plot(btc_median$Close[index(btc_median) >= as.Date("2018-01-01 00:00:00.000")],xlab = "", ylab = "", axes = FALSE, bty="n")
 
-#btc_blockchain <- read.zoo('/Users/sacbe/Documents/Tesis/Algoritmos/cleaning/BTC - coinMetrics.csv', sep = ",", header =TRUE)
 btc_blockchain <- read.zoo('/Users/sacbe/Library/Mobile Documents/iCloud~md~obsidian/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC - coinMetrics_marzo.csv', sep = ",", header =TRUE)
 btc_blockchain <- as.xts(btc_blockchain)
 
@@ -108,7 +105,7 @@ inverter = function(scaled, scaler, feature_range = c(0, 1)){
   maxs = feature_range[2]
   inverted_dfs = numeric(n)
   
-  for( i in 1:n){
+  for(i in 1:n){
     X = (scaled[i]- mins)/(maxs - mins)
     rawValues = X *(max - min) + min
     inverted_dfs[i] <- rawValues
@@ -304,6 +301,7 @@ for (i in 1:5) {
   ACC[8,i] <- TheilU(trainc, rf_list[[i]],na.rm = TRUE)
 
 }
+
 library(kernlab)
 (rmse(na.approx(trainc - svmf.btc)))
 model_svm <- ksvm(Close ~ Open + Volume_Currency + AdrActCnt + DiffMean + FeeTotNtv + SplyCur + SplyFF + TxTfrCnt + TxTfrValUSD, data = as.data.frame(t_trainData), kernel = "vanilladot")
