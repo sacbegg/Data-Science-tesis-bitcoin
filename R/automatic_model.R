@@ -25,7 +25,7 @@ if (FALSE){
   tf$constant("Hellow Tensorflow")
 }
 
-##################### ##############################################
+###################################################################
 #Data processing
 ###################################################################
  
@@ -84,7 +84,7 @@ lags <- function(x, k){
 }
 normalize = function(train, test, feature_range = c(0, 1)) {
   #Normalizamos los datos con el maximo de los datos de entrenamiento
-  x = test
+  x = train
   fr_min = feature_range[1]
   fr_max = feature_range[2]
   std_train = ((x - min(x) ) / (max(x) - min(x)  ))
