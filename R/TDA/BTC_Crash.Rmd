@@ -1,0 +1,139 @@
+---
+title: "R Notebook"
+output:
+  html_notebook: default
+  pdf_document: default
+---
+
+## Directorio de trabajo
+Se establece el directorio de trabajo desde el cual se carga el script principal con las funciones para el TDA.
+```{r}
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+getwd()
+source("TDA_Crash.R")
+```
+
+## Librerías
+```{r}
+library(TDA)        # Para ripsDiag
+library(PKNCA)      # Para pk.calc.auc.all
+library(factoextra) # Para agrupamientos
+library(ggplot2)    # Gráficas
+```
+
+## Funciones auxiliares
+La función análisis de cluster encuentra el cluster que cumple las condiciones de riesgo. 
+
+```{r}
+Normalize_Data <- function(val){
+  return ((val - min(val)) / (max(val) - min(val)))
+}
+
+analisis_cluster <- function(cluster, data){
+  tmp <- cluster
+  tmp <- as.data.frame(tmp)
+  tmp <- cbind(tmp,data)
+  tmp <- subset(tmp, data > 0.5)
+  y <- as.data.frame(table(tmp$tmp))
+  colnames(y) <- c("Cluster", "Num_elementos")
+  #print(y)
+  res <- y$Cluster[which.max(y$Num_elementos)]
+  return(as.numeric(as.character(res)))
+}
+```
+
+## Carga de datos
+Entre más grande sea el número de datos, menos exactitud tendrá el algoritmo.
+```{r}
+BTC <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-USD.csv', sep = ",", header =TRUE)
+data <- as.xts(BTC$Close)
+data <- subset(data, index(data) > as.Date("2021-01-01") )
+colnames(data) <- c("Close")
+data <- na.fill(data,"extend")
+
+head(data)
+```
+
+## Análisis topológico de datos
+
+```{r}
+norm_data <- analyze_1d(data, returns = TRUE, K_max = 10, window = 50)
+```
+
+### Creación de norma $C^1$
+```{r}
+c1 = norm_data + abs(diff(norm_data))
+c1 <- na.fill(c1,"extend")
+colnames(c1) <- "C1"
+ggplot(data=c1, aes(index(c1),C1)) +
+  geom_line(data = c1)+
+  labs(title = " ", x = " ", y = "Norma C1")+
+  theme_minimal()+
+  theme(text = element_text(family = "LM Roman 10"))
+
+```
+
+### Creación de cluster de riesgo
+```{r}
+eje_x <- Normalize_Data(log(data))
+eje_y <- Normalize_Data(c1)
+
+agrupamientos <- as.data.frame(cbind(eje_x,eje_y))
+agrupamientos <- na.omit(agrupamientos)
+colnames(agrupamientos) <- c("log price", "C1 norm")
+rownames(agrupamientos) <- format(index(eje_y),"%d/%b/%y")
+
+write.csv(agrupamientos,"/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/C1_entropy_norm.csv", row.names = T)
+cl <- kmeans(agrupamientos, 3)
+
+ggcluster <- fviz_cluster(cl, data = agrupamientos)
+ggcluster + theme_minimal() + theme(text = element_text(family = "LM Roman 10"))
+```
+
+## Alerta en datos originales
+Las alertas de caída se encuentran en las subidas repentinas del precio para luego caer en picada, es decir, no hay un pequeño valle antes de la caída.
+
+```{r}
+dates <- index(eje_y)
+new_dates <- tail(dates, length(eje_y))
+grups.xts <- xts(agrupamientos, order.by = new_dates)
+final <- merge(data,grups.xts, all = FALSE)
+final <- as.data.frame(final)
+cluster_TDA <- cbind(final, cl$cluster)
+colnames(cluster_TDA)[4] <- "Cluster"
+
+write.csv(cluster_TDA,"cluster_TDA.csv", row.names = T)
+
+
+cluster_minicrash <- analisis_cluster(cl$cluster, eje_y)
+cat("El cluster de riesgo es el cluster: ",cluster_minicrash)
+
+
+cluster_TDA$Dates <- as.Date(new_dates, "%m/%d/%Y")
+
+alerta_original <- ggplot(cluster_TDA, aes(Dates, Close, colour = factor(Cluster))) + 
+  geom_point() +
+  geom_line(data = cluster_TDA, color = "black", alpha = 0.4) +
+  theme_minimal()+
+  labs(title = " ", x = " ", y = "Precio en USD")+
+  guides(colour = guide_legend(title = " ", title.position = "left"))+
+  scale_color_discrete(
+    labels = c("2" = "Alerta de caída fuerte"), breaks = c(2)
+    )+
+  theme(legend.position = "bottom", legend.text = element_text(size = 12), text = element_text(family = "LM Roman 10"))
+
+alerta_original
+
+alerta_log <- ggplot(cluster_TDA, aes(Dates, log(Close), colour = factor(Cluster))) + 
+  geom_point() +
+  geom_line(data = cluster_TDA, color = "black", alpha = 0.4) +
+  theme_minimal()+
+  labs(title = " ", x = " ", y = "Precio en log(USD)")+
+  guides(colour = guide_legend(title = " ", title.position = "left"))+
+  scale_color_discrete(
+    labels = c("2" = "Alerta de caída fuerte"), breaks = c(2)
+    )+
+  theme(legend.position = "bottom", legend.text = element_text(size = 12), text = element_text(family = "LM Roman 10"))
+
+alerta_log
+```

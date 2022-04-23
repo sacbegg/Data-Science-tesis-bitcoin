@@ -1,8 +1,10 @@
 ---
 title: "Selección de modelo para predicción"
-output: html_notebook
-editor_options: 
-  chunk_output_type: console
+output:
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: inline
 ---
 
 ## Librerías
@@ -13,7 +15,7 @@ library(xts)
 library(fpp2)
 library(tictoc)
 library(forecast)
-library(e1071)
+library(kernlab)
 library(ranger)
 library(DescTools)
 library(keras)
@@ -26,23 +28,41 @@ library(tensorflow)
 # Carga de archivo csv en formato OHLCV del precio
 btc_median <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-USD.csv', sep = ",", header =TRUE)
 btc_median <- as.xts(btc_median)
-btc_median <- btc_median['/2021-03-09']
+btc_median <- btc_median['/2022-04-14']
 
 # Carga de archivo CSV con metricas de la blockchain
-btc_blockchain <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC - coinMetrics_marzo.csv', sep = ",", header =TRUE)
+btc_blockchain <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-coinMetricsV2.csv', sep = ",", header =TRUE)
 btc_blockchain <- as.xts(btc_blockchain)
 btc_blockchain <- subset(btc_blockchain, select = -PriceUSD)
-btc_blockchain <- btc_blockchain['/2021-03-09']
+btc_blockchain <- btc_blockchain['/2022-04-14']
 
 # Creación de dataframe con metricas financieras y de la blockchain
 btc_median_cmetric <- merge(x = btc_median, y = btc_blockchain, join = 'inner')
+
+if (sum(is.na(btc_median_cmetric)) > 0){
+  print("Hay valores faltantes")
+}
+
+# Remplazo de ceros para evitar errores de calculo
+
+btc_median_cmetric[btc_median_cmetric == 0] = 0.1
+
+```
+
+```{r}
 write.csv(btc_median_cmetric,"/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC_median_cmetric.csv")
 ```
 ## Visualización de los datos
 
 ```{r}
-plot(btc_median_cmetric$Close[index(btc_median_cmetric) >= as.Date("2012-01-01 00:00:00.000")],xlab = "", ylab = "", axes = FALSE, bty="n", main = "BTC - USD", grid.col = NA)
+ggplot(btc_median_cmetric, aes(index(btc_median_cmetric), Close)) +
+  geom_line(data = btc_median_cmetric, color = "black") +
+  theme_minimal() +
+  labs(title = "Bitcoin precio de cierre en dólares", x = " ", y = "")+
+  theme(text = element_text(family = "LM Roman 10"))
+
 ```
+
 ## Creación de conjunto de prueba y entrenamiento
 
 ```{r}
@@ -51,23 +71,35 @@ train <- btc_median_cmetric[1:s,]
 test <- btc_median_cmetric[(s+1):nrow(btc_median_cmetric),]
 
 testc <- test$Close
+testo <- test$Open
+testh <- test$High
+testl <- test$Low
+testl <- test$Low
 trainc <- train$Close
-
-print(train)
+traino <- train$Open
+trainh <- train$High
+trainl <- train$Low
 ```
 
-## Definición variables para precisión
-Se definen listas para guardar los resultados de predicción de los modelos y se guardan las metricas de error en matrices para compararción de modelos.
+## Definición variables para comparación de medidas de error
+Se definen listas para guardar los resultados de predicción de los modelos y se guardan las métricas de error en matrices para comparación de modelos.
 
 ```{r}
 models_names <- c('Naive', 'SES', 'Holt','ETS','ARIMA', 'Regresion', 'SVM','RF',"LSTM")
 transform_names <- c('Original', 'log', 'BoxCox', 'diff', 'diff(log)') 
 RMSE <- matrix(nrow = length(models_names), ncol = length(transform_names))
+RMSE_test <- matrix(nrow = length(models_names), ncol = length(transform_names))
 colnames(RMSE) <- transform_names
 rownames(RMSE) <- models_names
+colnames(RMSE_test) <- transform_names
+rownames(RMSE_test) <- models_names
+
 ACC <- matrix(nrow = length(models_names), ncol = length(transform_names))
+ACC_test <- matrix(nrow = length(models_names), ncol = length(transform_names))
 colnames(ACC) <- transform_names
 rownames(ACC) <- models_names
+colnames(ACC_test) <- transform_names
+rownames(ACC_test) <- models_names
 
 naive_list <- list()
 ses_list <- list()
@@ -111,17 +143,21 @@ normalize = function(train, test, feature_range = c(0, 1)) {
               scaler= c(min =min(x), max = max(x))))
 }
 
-normalize_z = function(data, feature_range = c(0, 1)) {
+normalize_z = function(data, feature_range = c(0, 1), scaled = 1) {
   #Normalizamos los datos con el maximo del dataframe
   x = data
   fr_min = feature_range[1]
   fr_max = feature_range[2]
-  std_data = ((x - min(x) ) / (max(x) - min(x)  ))
+  std_data = ((x - min(x)) / (max(x) - min(x)))
   
   scaled_data = std_data *(fr_max -fr_min) + fr_min
   
-  return(list(scaled_data = as.vector(scaled_data),
+  if(scaled == 1){
+    return(list(scaled_data = as.vector(scaled_data),
               scaler= c(min(x),max(x))))
+  }
+  else return(scaled_data = as.vector(scaled_data))
+  
 }
 
 inverter = function(scaled, scaler, feature_range = c(0, 1)){
@@ -147,15 +183,15 @@ time_pred <- length(testc)
 tic()
 for (i in 1:5) {
   if(i == 1){
-    t_trainData <- trainc
+    t_trainData <- train$Close
   } else if(i == 2){
-    t_trainData <- log(trainc)
+    t_trainData <- log(train$Close)
   } else if(i == 3){
-    t_trainData <- BoxCox(trainc, lambda = BoxCox.lambda(trainc))
+    t_trainData <- BoxCox(train$Close, lambda = BoxCox.lambda(train$Close))
   } else if(i == 4){
-    t_trainData <- na.fill(diff(trainc),"extend")
+    t_trainData <- na.fill(diff(train$Close),"extend")
   } else{
-    t_trainData <- na.fill(diff(log(trainc)),"extend")
+    t_trainData <- na.fill(diff(log(train$Close)),"extend")
   }
   #Naive
   naive.btc <- naive(t_trainData, h=time_pred)
@@ -165,7 +201,8 @@ for (i in 1:5) {
   h.btc <- holt(t_trainData, h=time_pred, damped = TRUE)
   #ETS
   ets.btc <- ets(as.ts(t_trainData))
-  etsf.btc <- predict(ets.btc, time_pred)
+  etsf.btc <- forecast(ets.btc, time_pred)
+
   #ARIMA
   arima.btc <- auto.arima(as.ts(t_trainData))
   arimaf.btc <- forecast(arima.btc, time_pred)
@@ -176,13 +213,13 @@ for (i in 1:5) {
     h.btc$fitted = h.btc$fitted
     etsf.btc$fitted = etsf.btc$fitted
     arimaf.btc$fitted = arimaf.btc$fitted
-  }else if(i == 2){ # Predicción sobre datos con transformarción log
+  }else if(i == 2){ # Predicción sobre datos con transformación log
     naive.btc$fitted = na.fill(exp(naive.btc$fitted),"extend")
     ses.btc$fitted = exp(ses.btc$fitted)
     h.btc$fitted = exp(h.btc$fitted)
     etsf.btc$fitted = exp(etsf.btc$fitted)
     arimaf.btc$fitted = exp(arimaf.btc$fitted)
-  }else if(i == 3){ # Predicción sobre datos con transformarción BoxCox
+  }else if(i == 3){ # Predicción sobre datos con transformación BoxCox
     naive.btc$fitted = na.fill(InvBoxCox(naive.btc$fitted, lambda = BoxCox.lambda(trainc)),"extend")
     ses.btc$fitted = InvBoxCox(ses.btc$fitted, lambda = BoxCox.lambda(trainc))
     h.btc$fitted = InvBoxCox(h.btc$fitted, lambda = BoxCox.lambda(trainc))
@@ -192,14 +229,14 @@ for (i in 1:5) {
     #i <- 4
     for (j in 1:(length(trainc))) {
       
-      if(i == 4){ # Predicción sobre datos con transformarción diff
+      if(i == 4){ # Predicción sobre datos con transformación diff
         naive.btc$fitted[j]  =  naive.btc$fitted[j] + btc_median_cmetric$Close[(1+j)]
         ses.btc$fitted[j]  = ses.btc$fitted[j] + btc_median_cmetric$Close[(1+j)]
         h.btc$fitted[j]  = h.btc$fitted[j] + btc_median_cmetric$Close[(1+j)]
         etsf.btc$fitted[j]  = etsf.btc$fitted[j] + btc_median_cmetric$Close[(1+j)]
         arimaf.btc$fitted[j]  = arimaf.btc$fitted[j] + btc_median_cmetric$Close[(1+j)]
         
-      }else{ # Predicción sobre datos con transformarción diff(log)
+      }else{ # Predicción sobre datos con transformación diff(log)
         naive.btc$fitted[j]  = exp(naive.btc$fitted[j]) + btc_median_cmetric$Close[(1+j)]
         ses.btc$fitted[j]  = exp(ses.btc$fitted[j]) + btc_median_cmetric$Close[(1+j)]
         h.btc$fitted[j]  = exp(h.btc$fitted[j]) + btc_median_cmetric$Close[(1+j)]
@@ -236,42 +273,43 @@ toc()
 ## Entrenamiento con modelos de machine learning
 
 ```{r}
+tic()
 for (i in 1:5) {
   t_trainData <- train
   if(i == 1){
     t_trainData <- t_trainData
   } else if(i == 2){
-    t_trainData$Close <- log(trainc)
+    t_trainData <- log(t_trainData)
   } else if(i == 3){
-    t_trainData <- BoxCox(trainc, lambda = BoxCox.lambda(trainc))
+    lambda = BoxCox.lambda(train$Close)
+    t_trainData <- as.data.frame(lapply(t_trainData[ ,1:ncol(t_trainData)], BoxCox, lambda = lambda))
   } else if(i == 4){
-    t_trainData <- na.approx(diff(trainc))
+    t_trainData <- na.spline(diff(t_trainData))
   } else{
-    t_trainData <- na.approx(diff(log(trainc)))
+    t_trainData <- na.spline(diff(log(t_trainData)))
   }
-  Scaled = normalize(as.data.frame(t_trainData[,c(1,4,5,6,7,8,9,10,11,12,13,14,15)]),as.data.frame(t_trainData[,c(1,4,5,6,7,8,9,10,11,12,13,14,15)]))
-  scaler = Scaled$scaler
-  
-  t_trainData = as.ts(Scaled$scaled_train)
+  # Eliminar posibles columnas no necesarias en escalado de datos
+  col = names(t_trainData)[names(t_trainData) != c(" ")]
 
-  #AQUI AGREAGAR OTRAS VARIABLES PARA PREDICCIÓN
+  Scaled <- as.data.frame(lapply(t_trainData[,col], normalize_z, scaled = 0))
   
+  scaler = normalize_z(t_trainData$Close)$scaler
+  t_trainData = as.ts(Scaled)
+  
+  head(t_trainData)
   # Regresión sobre series de tiempo
-  regresion.btc <- tslm(Close ~ Open + Volume_Currency + AdrActCnt + DiffMean + FeeTotNtv + SplyCur + SplyFF + TxTfrCnt + TxTfrValUSD, data = t_trainData, lambda = NULL)
-  #regresion.btc <- tslm(Close ~ Open + Volume_Currency + AdrActCnt + BlkSizeByte + BlkSizeMeanByte + CapRealUSD + DiffMean + HashRate + SplyCur + SplyFF + TxCnt, data = t_trainData, lambda = NULL)
-  #regresion.btc <- tslm(Close ~ Open + Volume_Currency, data = t_trainData, lambda = NULL)
-  #regresion.btc <- tslm(Close ~ Open + Volume_Currency + CapRealUSD + DiffMean + HashRate, data = t_trainData, lambda = NULL)
+  regresion.btc <- tslm(Close ~ Open + High + Low + Volume_Currency + HashRate + AdrBalUSD1MCnt, data = t_trainData, lambda = NULL)
   regresionf.btc <- predict(regresion.btc,as.data.frame(t_trainData))
   
   # Maquinas de vectores de soporte
-  svm.btc <- svm(Close ~ Open + Volume_Currency + AdrActCnt + DiffMean + FeeTotNtv + SplyCur + SplyFF + TxTfrCnt + TxTfrValUSD, data = as.data.frame(t_trainData))
+  invisible(capture.output(svm.btc <- ksvm(Close ~ Open + High + Low + Volume_Currency + HashRate + AdrBalUSD1MCnt, data = as.data.frame(t_trainData), kernel = "vanilladot")))
   svmf.btc <- predict(svm.btc,as.data.frame(t_trainData))
   
   # Arboles aleatorios
-  rf.btc <- ranger(Close ~ Open + Volume_Currency + AdrActCnt + DiffMean + FeeTotNtv + SplyCur + SplyFF + TxTfrCnt + TxTfrValUSD, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
+  rf.btc <- ranger(Close ~ Open + High + Low + Volume_Currency + HashRate + AdrBalUSD1MCnt, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
   rff.btc <- predict(rf.btc,as.data.frame(t_trainData))$predictions
   
-  
+  # Se invierte el escaldo
   regresionf.btc = inverter(regresionf.btc,scaler)
   svmf.btc = inverter(svmf.btc,scaler)
   rff.btc = inverter(rff.btc,scaler)
@@ -304,18 +342,20 @@ for (i in 1:5) {
   
   # Guardado de predicciones y calculo de indicadores de error
   regresion_list[[i]] <- regresionf.btc
-  RMSE[6,i] <- rmse(na.approx(trainc - regresion_list[[i]]))
-  ACC[6,i] <- TheilU(trainc, regresion_list[[i]], na.rm = TRUE)
+  RMSE[6,i] <- rmse(na.approx(trainc - regresionf.btc))
+  ACC[6,i] <- TheilU(trainc, regresionf.btc, na.rm = TRUE)
   svm_list[[i]] <- svmf.btc
-  RMSE[7,i] <- rmse(na.approx(trainc - svm_list[[i]]))
-  ACC[7,i] <- TheilU(trainc, svm_list[[i]], na.rm = TRUE)
+  RMSE[7,i] <- rmse(na.approx(trainc - svmf.btc))
+  ACC[7,i] <- TheilU(trainc, svmf.btc, na.rm = TRUE)
+  length(svmf.btc)
+  length(rff.btc)
   rf_list[[i]] <- rff.btc
-  RMSE[8,i] <- rmse(na.approx(trainc - rf_list[[i]]))
-  ACC[8,i] <- TheilU(trainc, rf_list[[i]],na.rm = TRUE)
+  RMSE[8,i] <- rmse(na.approx(trainc - rff.btc))
+  ACC[8,i] <- TheilU(trainc, rff.btc,na.rm = TRUE)
 
 }
+toc()
 ```
-
 ## Entrenamiento con LSTM
 
 ```{r}
@@ -333,22 +373,16 @@ for (i in 1:5) {
     transf = diff(log(btc_median_cmetric$Close), differences = 1)
   }
   supervised = lags(transf, 1)
-  #plot(as.ts(supervised["x"]))
+  head(supervised)
   supervised_scaled <- as.data.frame(lapply(supervised[1:2], normalize_z,feature_range = c(-1, 1)))
   
-  #plot(as.ts(supervised_scaled["x.scaled_data"]))
   train_lstm = supervised_scaled[1:s, ]
   test_lstm  = supervised_scaled[(s+1):nrow(btc_median_cmetric), ]
-  #plot(as.ts(train_lstm["x.scaled_data"]))
-  
+
   y_train = train_lstm[, 2]
   x_train = train_lstm[, 1]
-  #plot(as.ts(x_train))
-  #dim(x_train)
-  tail(x_train)
   y_test = test_lstm[, 2]
   x_test = test_lstm[, 1]
-  tail(x_test)
 
   
   # Reshape the input to 3-dim
@@ -372,23 +406,20 @@ for (i in 1:5) {
     metrics = c('accuracy')
   )
 
-  summary(model)
+  #summary(model)
   
-  nb_epoch = 5   
+  nb_epoch = 10
   for(j in 1:nb_epoch ){
-    model %>% fit(x_train, y_train, epochs=1, batch_size=batch_size, verbose=1, shuffle=FALSE)
+    cat("Modelo:",i,", Epoch:",j,"\n")
+    model %>% fit(x_train, y_train, epochs=1, batch_size=batch_size, verbose=0, shuffle=FALSE)
     model %>% reset_states()
   }
   
-  
-  #no_scaled = inverter(x_train, scaler,  c(-1, 1))
-  #plot(as.ts(no_scaled))
   L = length(x_train)
   dim(x_train) = c(length(x_train), 1, 1)
   scaler = supervised_scaled$x.scaler[1:2]
   predictions = numeric(L)
-  # k = 1
-  # i = 1
+  lambda = BoxCox.lambda(btc_median_cmetric$Close)
   for(k in 1:L){
     X = x_train[k,,]
     dim(X) = c(1,1,1)
@@ -402,7 +433,7 @@ for (i in 1:5) {
     }else if(i==2){
       yhat = exp(yhat)
     }else if(i==3){
-      yhat = InvBoxCox(yhat, lambda = BoxCox.lambda(btc_median_cmetric$Close)) 
+      yhat = InvBoxCox(yhat, lambda = lambda) 
     }else if(i==4){
       yhat  = yhat + btc_median_cmetric$Close[(1+k)]  
     }else{
@@ -416,13 +447,6 @@ for (i in 1:5) {
   ACC[9,i] <- TheilU(trainc, lstm_list[[i]])
 }
 toc()
-```
-
-```{r}
-length(lstm_list[[1]])
-length(trainc)
-print(lstm_list[[1]])
-plot(as.ts(transf), ylab = NULL, xlab = NULL, main = 'LSTM') & lines(as.ts(lstm_list[[1]]), col = "red")
 ```
 
 ## Elección de mejor modelo
@@ -450,30 +474,81 @@ bestModel
 ## Gráfica modelo seleccionado
 
 ```{r}
-par(mfrow=c(1,1),mex=0.6,cex=0.8)
-#t_trainData <- BoxCox(train, lambda = BoxCox.lambda(trainc))
-#t_testData <- BoxCox(test, lambda = BoxCox.lambda(trainc))
 t_trainData <- train
 t_testData <- test
-Scaled = normalize(as.data.frame(t_trainData[,c(1,4,5,6,7,8,9,10,11,12,13,14,15)]),as.data.frame(t_testData[,c(1,4,5,6,7,8,9,10,11,12,13,14,15)]))
-scaler = Scaled$scaler
-t_trainData = as.ts(Scaled$scaled_train)
-t_testData = as.ts(Scaled$scaled_test)
+t_trainData <- log(t_trainData)
+t_testData <- log(t_testData)
 
-#rf.btc <- ranger(Close ~ Open, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
-#rf.btc <- ranger(Close ~ Open + AdrActCnt + BlkSizeByte + BlkSizeMeanByte + CapMrktCurUSD + CapRealUSD + DiffMean + HashRate + SplyCur + SplyFF + TxCnt, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
-rf.btc <- ranger(Close ~ Open + Volume_Currency + AdrActCnt + DiffMean + FeeTotNtv + SplyCur + SplyFF + TxTfrCnt + TxTfrValUSD, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
+col_train = names(t_trainData)[names(t_trainData) != c(" ")]
+col_test = names(t_testData)[names(t_trainData) != c(" ")]
+Scaled_train <- as.data.frame(lapply(t_trainData[,col], normalize_z, scaled = 0))
+Scaled_test <- as.data.frame(lapply(t_testData[,col], normalize_z, scaled = 0))
+  
+scaler_train = normalize_z(t_trainData$Close)$scaler
+t_trainData = as.ts(Scaled_train)
+scaler_test = normalize_z(t_testData$Close)$scaler
+t_testData = as.ts(Scaled_test)
+
+rf.btc <- ranger(Close ~ Open + High + Low + Volume_Currency + HashRate + AdrBalUSD1MCnt, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
 rff.btc <- predict(rf.btc,as.data.frame(t_testData))$predictions
-rff.btc = inverter(rff.btc,scaler)
-#rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(trainc))
-plot(as.ts(testc), ylab = NULL, xlab = NULL, main = 'Random Forest',type = "o") & lines(as.ts(rff.btc), col = "red") & legend("bottomright", legend = c("Original", "Predicción"),
-       lwd = 3, col = c("black", "red"))
+rff.btc = inverter(rff.btc,scaler_test)
+#rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(testc))
+rff.btc = exp(rff.btc)
 ```
 
+```{r}
+rff.btc.df = as.data.frame(rff.btc)
+colnames(rff.btc.df) <- "Close"
 
+ggplot(data=testc, aes(index(testc),Close)) +
+  geom_point(data = testc, aes(colour = "Original"))+
+  geom_line(data = rff.btc.df, aes(colour = "Predicción"))+
+  labs(title = "Random Forest", x = " ", y = " ")+
+  theme_minimal()+
+  theme(text = element_text(family = "LM Roman 10"))+
+  scale_colour_manual(name=" ",
+      values=c(Original="black", Predicción="red"))+
+  theme(legend.position = "bottom")
 
+cat("RMSE: ",rmse(na.approx(testc - rff.btc)))
+cat("Theil's U: ",TheilU(testc, rff.btc))
 
+```
+```{r}
+t_trainData <- train
+t_testData <- test
+t_trainData <- log(t_trainData)
+t_testData <- log(t_testData)
 
+col_train = names(t_trainData)[names(t_trainData) != c(" ")]
+col_test = names(t_testData)[names(t_trainData) != c(" ")]
+Scaled_train <- as.data.frame(lapply(t_trainData[,col], normalize_z, scaled = 0))
+Scaled_test <- as.data.frame(lapply(t_testData[,col], normalize_z, scaled = 0))
+  
+scaler_train = normalize_z(t_trainData$Close)$scaler
+t_trainData = as.ts(Scaled_train)
+scaler_test = normalize_z(t_testData$Close)$scaler
+t_testData = as.ts(Scaled_test)
 
+rf.btc <- ranger(Close ~ Open + High + Low + Volume_Currency, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
+rff.btc <- predict(rf.btc,as.data.frame(t_trainData))$predictions
+rff.btc = inverter(rff.btc,scaler_train)
+#rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(testc))
+rff.btc = exp(rff.btc)
 
+rff.btc.df = as.data.frame(rff.btc)
+colnames(rff.btc.df) <- "Close"
 
+ggplot(data=trainc, aes(index(trainc),Close)) +
+  geom_point(data = trainc, aes(colour = "Original"))+
+  geom_line(data = rff.btc.df, aes(colour = "Predicción"))+
+  labs(title = "Random Forest", x = " ", y = " ")+
+  theme_minimal()+
+  theme(text = element_text(family = "LM Roman 10"))+
+  scale_colour_manual(name=" ",
+      values=c(Original="black", Predicción="red"))+
+  theme(legend.position = "bottom")
+
+cat("RMSE: ",rmse(na.approx(trainc - rff.btc)))
+cat("Theil's U: ",TheilU(trainc, rff.btc))
+```

@@ -75,7 +75,7 @@ nd_diag <- function(time, max_scale = 0.1, K_max = 10, window = 10)
   spot <- seq(from=1, to=(total-window+1), by=step)
   
   #Persistence diagrams
-  print("Computing persistence diagrams...")
+  cat("Computing persistence diagrams...")
   pb <- txtProgressBar(min = 0, max = length(spot), style = 3)
   for(i in 1:length(spot)){
     Diags1.rips.ls[[i]] = 
@@ -100,7 +100,7 @@ nd_norm <- function(diag, max_scale, K_max = 10, scaling_method = "log"){
   AUC_Land.m = matrix(0,length(spot),K_max) #collects values of lambda_k at particular date i per k 
   AUC_Land.v = vector(length=length(spot)) #collects values of L^1 at particular date
   #Compute L^1
-  print("\nComputing the L1 norm of persistence landscapes...")
+  cat("Computing the L1 norm of persistence landscapes...")
   pb <- txtProgressBar(min = 0, max = length(spot), style = 3)
   for (i in 1:length(spot)){
     diagram <- diag[[i]]$diagram
