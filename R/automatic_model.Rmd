@@ -8,6 +8,7 @@ editor_options:
 ---
 
 ## Librerías
+
 La librería xts nos ayuda a formatear un archivo csv a un formato de serie de tiempo
 
 ```{r}
@@ -28,11 +29,13 @@ library(tensorflow)
 # Carga de archivo csv en formato OHLCV del precio
 btc_median <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-USD.csv', sep = ",", header =TRUE)
 btc_median <- as.xts(btc_median)
+index(btc_median) <- as.Date(index(btc_median))
 btc_median <- btc_median['/2022-04-14']
 
 # Carga de archivo CSV con metricas de la blockchain
 btc_blockchain <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-coinMetricsV2.csv', sep = ",", header =TRUE)
 btc_blockchain <- as.xts(btc_blockchain)
+index(btc_blockchain) <- as.Date(index(btc_blockchain))
 btc_blockchain <- subset(btc_blockchain, select = -PriceUSD)
 btc_blockchain <- btc_blockchain['/2022-04-14']
 
@@ -50,17 +53,25 @@ btc_median_cmetric[btc_median_cmetric == 0] = 0.1
 ```
 
 ```{r}
+head(btc_median_cmetric)
 write.csv(btc_median_cmetric,"/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC_median_cmetric.csv")
 ```
+
 ## Visualización de los datos
 
 ```{r}
-ggplot(btc_median_cmetric, aes(index(btc_median_cmetric), Close)) +
+btc_plot <- ggplot(btc_median_cmetric, aes(index(btc_median_cmetric), Close)) +
   geom_line(data = btc_median_cmetric, color = "black") +
   theme_minimal() +
   labs(title = "Bitcoin precio de cierre en dólares", x = " ", y = "")+
   theme(text = element_text(family = "LM Roman 10"))
 
+btc_plot
+
+btc_plot + geom_vline(xintercept = as.Date("2017-01-01"), col = "red")+ geom_vline(xintercept = as.Date("2018-01-01"), col = "red")+ geom_vline(xintercept = as.Date("2019-01-01"), col = "red")+ geom_vline(xintercept = as.Date("2020-01-01"), col = "red")+ geom_vline(xintercept = as.Date("2021-04-01"), col = "red")+ geom_vline(xintercept = as.Date(max(index(btc_median_cmetric))), col = "red")
+
+
+btc_plot
 ```
 
 ## Creación de conjunto de prueba y entrenamiento
@@ -69,19 +80,10 @@ ggplot(btc_median_cmetric, aes(index(btc_median_cmetric), Close)) +
 s <- as.integer(nrow(btc_median_cmetric)*0.8)
 train <- btc_median_cmetric[1:s,]
 test <- btc_median_cmetric[(s+1):nrow(btc_median_cmetric),]
-
-testc <- test$Close
-testo <- test$Open
-testh <- test$High
-testl <- test$Low
-testl <- test$Low
-trainc <- train$Close
-traino <- train$Open
-trainh <- train$High
-trainl <- train$Low
 ```
 
 ## Definición variables para comparación de medidas de error
+
 Se definen listas para guardar los resultados de predicción de los modelos y se guardan las métricas de error en matrices para comparación de modelos.
 
 ```{r}
@@ -113,6 +115,7 @@ lstm_list <- list()
 ```
 
 ## Definición de funciones
+
 Se definen funciones para operar sobre los datos de dataframe.
 
 ```{r}
@@ -176,10 +179,11 @@ inverter = function(scaled, scaler, feature_range = c(0, 1)){
   return(inverted_dfs)
 }
 ```
+
 ## Entrenamiento con modelos estadísticos univariados
 
 ```{r}
-time_pred <- length(testc)
+time_pred <- length(test$Close)
 tic()
 for (i in 1:5) {
   if(i == 1){
@@ -220,14 +224,14 @@ for (i in 1:5) {
     etsf.btc$fitted = exp(etsf.btc$fitted)
     arimaf.btc$fitted = exp(arimaf.btc$fitted)
   }else if(i == 3){ # Predicción sobre datos con transformación BoxCox
-    naive.btc$fitted = na.fill(InvBoxCox(naive.btc$fitted, lambda = BoxCox.lambda(trainc)),"extend")
-    ses.btc$fitted = InvBoxCox(ses.btc$fitted, lambda = BoxCox.lambda(trainc))
-    h.btc$fitted = InvBoxCox(h.btc$fitted, lambda = BoxCox.lambda(trainc))
-    etsf.btc$fitted = InvBoxCox(etsf.btc$fitted, lambda = BoxCox.lambda(trainc))
-    arimaf.btc$fitted = InvBoxCox(arimaf.btc$fitted, lambda = BoxCox.lambda(trainc))
+    naive.btc$fitted = na.fill(InvBoxCox(naive.btc$fitted, lambda = BoxCox.lambda(train$Close)),"extend")
+    ses.btc$fitted = InvBoxCox(ses.btc$fitted, lambda = BoxCox.lambda(train$Close))
+    h.btc$fitted = InvBoxCox(h.btc$fitted, lambda = BoxCox.lambda(train$Close))
+    etsf.btc$fitted = InvBoxCox(etsf.btc$fitted, lambda = BoxCox.lambda(train$Close))
+    arimaf.btc$fitted = InvBoxCox(arimaf.btc$fitted, lambda = BoxCox.lambda(train$Close))
   }else{
     #i <- 4
-    for (j in 1:(length(trainc))) {
+    for (j in 1:(length(train$Close))) {
       
       if(i == 4){ # Predicción sobre datos con transformación diff
         naive.btc$fitted[j]  =  naive.btc$fitted[j] + btc_median_cmetric$Close[(1+j)]
@@ -251,21 +255,21 @@ for (i in 1:5) {
   }
   # Guardado de predicciones y calculo de indicadores de error
   naive_list[[i]] <- naive.btc$fitted
-  RMSE[1,i] <- rmse(trainc - as.vector(naive_list[[i]]))
-  ACC[1,i] <- TheilU(trainc, as.vector(naive_list[[i]]))
+  RMSE[1,i] <- rmse(train$Close - as.vector(naive_list[[i]]))
+  ACC[1,i] <- TheilU(train$Close, as.vector(naive_list[[i]]))
   ses_list[[i]] <- ses.btc$fitted
-  RMSE[2,i] <- rmse(trainc - as.vector(ses_list[[i]]))
-  ACC[2,i] <- TheilU(trainc, as.vector(ses_list[[i]]))
+  RMSE[2,i] <- rmse(train$Close - as.vector(ses_list[[i]]))
+  ACC[2,i] <- TheilU(train$Close, as.vector(ses_list[[i]]))
   holt_list[[i]] <- h.btc$fitted
-  RMSE[3,i] <- rmse(trainc - as.vector(holt_list[[i]]))
-  ACC[3,i] <- TheilU(trainc, as.vector(holt_list[[i]]))
+  RMSE[3,i] <- rmse(train$Close - as.vector(holt_list[[i]]))
+  ACC[3,i] <- TheilU(train$Close, as.vector(holt_list[[i]]))
   ets_list[[i]] <- etsf.btc$fitted
-  RMSE[4,i] <- rmse(trainc - as.vector(ets_list[[i]]))
-  ACC[4,i] <- TheilU(trainc, as.vector(ets_list[[i]]))
+  RMSE[4,i] <- rmse(train$Close - as.vector(ets_list[[i]]))
+  ACC[4,i] <- TheilU(train$Close, as.vector(ets_list[[i]]))
   arima_list[[i]] <- arimaf.btc$fitted  
-  RMSE[5,i] <- rmse(trainc - as.vector(arima_list[[i]]))
-  ACC[5,i] <- TheilU(trainc, as.vector(arima_list[[i]]))
-  trainc <- train$Close
+  RMSE[5,i] <- rmse(train$Close - as.vector(arima_list[[i]]))
+  ACC[5,i] <- TheilU(train$Close, as.vector(arima_list[[i]]))
+  train$Close <- train$Close
 }
 toc()
 ```
@@ -323,11 +327,11 @@ for (i in 1:5) {
     rff.btc = exp(rff.btc)
     regresionf.btc = exp(regresionf.btc)
   }else if(i == 3){
-    svmf.btc = InvBoxCox(svmf.btc, lambda = BoxCox.lambda(trainc))
-    rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(trainc))
-    regresionf.btc = InvBoxCox(regresionf.btc, lambda = BoxCox.lambda(trainc)) 
+    svmf.btc = InvBoxCox(svmf.btc, lambda = BoxCox.lambda(train$Close))
+    rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(train$Close))
+    regresionf.btc = InvBoxCox(regresionf.btc, lambda = BoxCox.lambda(train$Close)) 
   }else{
-    for (j in 1:length(trainc)) {
+    for (j in 1:length(train$Close)) {
       if(i == 4){
         svmf.btc[j]  = svmf.btc[j] + btc_median_cmetric$Close[(1+j)]
         rff.btc[j]  = rff.btc[j] + btc_median_cmetric$Close[(1+j)]
@@ -342,20 +346,21 @@ for (i in 1:5) {
   
   # Guardado de predicciones y calculo de indicadores de error
   regresion_list[[i]] <- regresionf.btc
-  RMSE[6,i] <- rmse(na.approx(trainc - regresionf.btc))
-  ACC[6,i] <- TheilU(trainc, regresionf.btc, na.rm = TRUE)
+  RMSE[6,i] <- rmse(na.approx(train$Close - regresionf.btc))
+  ACC[6,i] <- TheilU(train$Close, regresionf.btc, na.rm = TRUE)
   svm_list[[i]] <- svmf.btc
-  RMSE[7,i] <- rmse(na.approx(trainc - svmf.btc))
-  ACC[7,i] <- TheilU(trainc, svmf.btc, na.rm = TRUE)
+  RMSE[7,i] <- rmse(na.approx(train$Close - svmf.btc))
+  ACC[7,i] <- TheilU(train$Close, svmf.btc, na.rm = TRUE)
   length(svmf.btc)
   length(rff.btc)
   rf_list[[i]] <- rff.btc
-  RMSE[8,i] <- rmse(na.approx(trainc - rff.btc))
-  ACC[8,i] <- TheilU(trainc, rff.btc,na.rm = TRUE)
+  RMSE[8,i] <- rmse(na.approx(train$Close - rff.btc))
+  ACC[8,i] <- TheilU(train$Close, rff.btc,na.rm = TRUE)
 
 }
 toc()
 ```
+
 ## Entrenamiento con LSTM
 
 ```{r}
@@ -373,7 +378,6 @@ for (i in 1:5) {
     transf = diff(log(btc_median_cmetric$Close), differences = 1)
   }
   supervised = lags(transf, 1)
-  head(supervised)
   supervised_scaled <- as.data.frame(lapply(supervised[1:2], normalize_z,feature_range = c(-1, 1)))
   
   train_lstm = supervised_scaled[1:s, ]
@@ -384,7 +388,6 @@ for (i in 1:5) {
   y_test = test_lstm[, 2]
   x_test = test_lstm[, 1]
 
-  
   # Reshape the input to 3-dim
   dim(x_train) <- c(length(x_train), 1, 1)
   
@@ -411,12 +414,11 @@ for (i in 1:5) {
   nb_epoch = 10
   for(j in 1:nb_epoch ){
     cat("Modelo:",i,", Epoch:",j,"\n")
-    model %>% fit(x_train, y_train, epochs=1, batch_size=batch_size, verbose=0, shuffle=FALSE)
+    model %>% fit(x_train, y_train, epochs=1, batch_size=batch_size, verbose=1, shuffle=FALSE)
     model %>% reset_states()
   }
   
   L = length(x_train)
-  dim(x_train) = c(length(x_train), 1, 1)
   scaler = supervised_scaled$x.scaler[1:2]
   predictions = numeric(L)
   lambda = BoxCox.lambda(btc_median_cmetric$Close)
@@ -443,8 +445,8 @@ for (i in 1:5) {
     predictions[k] <- yhat
   }
   lstm_list[[i]] <- predictions
-  RMSE[9,i] <- rmse(trainc - lstm_list[[i]])
-  ACC[9,i] <- TheilU(trainc, lstm_list[[i]])
+  RMSE[9,i] <- rmse(train$Close - lstm_list[[i]])
+  ACC[9,i] <- TheilU(train$Close, lstm_list[[i]])
 }
 toc()
 ```
@@ -492,7 +494,7 @@ t_testData = as.ts(Scaled_test)
 rf.btc <- ranger(Close ~ Open + High + Low + Volume_Currency + HashRate + AdrBalUSD1MCnt, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
 rff.btc <- predict(rf.btc,as.data.frame(t_testData))$predictions
 rff.btc = inverter(rff.btc,scaler_test)
-#rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(testc))
+#rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(test$Close))
 rff.btc = exp(rff.btc)
 ```
 
@@ -500,8 +502,8 @@ rff.btc = exp(rff.btc)
 rff.btc.df = as.data.frame(rff.btc)
 colnames(rff.btc.df) <- "Close"
 
-ggplot(data=testc, aes(index(testc),Close)) +
-  geom_point(data = testc, aes(colour = "Original"))+
+ggplot(data=test$Close, aes(index(test$Close),Close)) +
+  geom_point(data = test$Close, aes(colour = "Original"))+
   geom_line(data = rff.btc.df, aes(colour = "Predicción"))+
   labs(title = "Random Forest", x = " ", y = " ")+
   theme_minimal()+
@@ -510,10 +512,11 @@ ggplot(data=testc, aes(index(testc),Close)) +
       values=c(Original="black", Predicción="red"))+
   theme(legend.position = "bottom")
 
-cat("RMSE: ",rmse(na.approx(testc - rff.btc)))
-cat("Theil's U: ",TheilU(testc, rff.btc))
+cat("RMSE: ",rmse(na.approx(test$Close - rff.btc)))
+cat("Theil's U: ",TheilU(test$Close, rff.btc))
 
 ```
+
 ```{r}
 t_trainData <- train
 t_testData <- test
@@ -533,14 +536,14 @@ t_testData = as.ts(Scaled_test)
 rf.btc <- ranger(Close ~ Open + High + Low + Volume_Currency, data = as.data.frame(t_trainData), num.trees = 500, seed = 123)
 rff.btc <- predict(rf.btc,as.data.frame(t_trainData))$predictions
 rff.btc = inverter(rff.btc,scaler_train)
-#rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(testc))
+#rff.btc = InvBoxCox(rff.btc, lambda = BoxCox.lambda(test$Close))
 rff.btc = exp(rff.btc)
 
 rff.btc.df = as.data.frame(rff.btc)
 colnames(rff.btc.df) <- "Close"
 
-ggplot(data=trainc, aes(index(trainc),Close)) +
-  geom_point(data = trainc, aes(colour = "Original"))+
+ggplot(data=train$Close, aes(index(train$Close),Close)) +
+  geom_point(data = train$Close, aes(colour = "Original"))+
   geom_line(data = rff.btc.df, aes(colour = "Predicción"))+
   labs(title = "Random Forest", x = " ", y = " ")+
   theme_minimal()+
@@ -549,6 +552,6 @@ ggplot(data=trainc, aes(index(trainc),Close)) +
       values=c(Original="black", Predicción="red"))+
   theme(legend.position = "bottom")
 
-cat("RMSE: ",rmse(na.approx(trainc - rff.btc)))
-cat("Theil's U: ",TheilU(trainc, rff.btc))
+cat("RMSE: ",rmse(na.approx(train$Close - rff.btc)))
+cat("Theil's U: ",TheilU(train$Close, rff.btc))
 ```

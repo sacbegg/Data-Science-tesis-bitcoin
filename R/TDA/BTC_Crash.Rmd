@@ -6,7 +6,9 @@ output:
 ---
 
 ## Directorio de trabajo
+
 Se establece el directorio de trabajo desde el cual se carga el script principal con las funciones para el TDA.
+
 ```{r}
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 getwd()
@@ -14,15 +16,19 @@ source("TDA_Crash.R")
 ```
 
 ## Librerías
+
 ```{r}
+library(xts)
 library(TDA)        # Para ripsDiag
 library(PKNCA)      # Para pk.calc.auc.all
 library(factoextra) # Para agrupamientos
 library(ggplot2)    # Gráficas
+library(quantmod)   # Para Delt
 ```
 
 ## Funciones auxiliares
-La función análisis de cluster encuentra el cluster que cumple las condiciones de riesgo. 
+
+La función análisis de cluster encuentra el cluster que cumple las condiciones de riesgo.
 
 ```{r}
 Normalize_Data <- function(val){
@@ -43,25 +49,50 @@ analisis_cluster <- function(cluster, data){
 ```
 
 ## Carga de datos
+
 Entre más grande sea el número de datos, menos exactitud tendrá el algoritmo.
+
 ```{r}
 BTC <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-USD.csv', sep = ",", header =TRUE)
 data <- as.xts(BTC$Close)
-data <- subset(data, index(data) > as.Date("2021-01-01") )
+date_start <- "2017-01-01" #min(index(btc_median_cmetric))
+date_end <- max(index(btc_median_cmetric))
+data <- subset(data, index(data) > as.Date(date_start) & index(data) < as.Date(date_end))
 colnames(data) <- c("Close")
-data <- na.fill(data,"extend")
+data_btc <- na.fill(data,"extend")
 
-head(data)
+head(data_btc)
 ```
 
 ## Análisis topológico de datos
 
 ```{r}
-norm_data <- analyze_1d(data, returns = TRUE, K_max = 10, window = 50)
+norm_data <- analyze_1d(data_btc, returns = TRUE, K_max = 10, window = 50)
 ```
 
 ### Creación de norma $C^1$
+
 ```{r}
+colnames(norm_data) <- "Norma"
+
+ggplot(data=data_btc, aes(index(data_btc),Close)) +
+  geom_line(data = log(data_btc))+
+  labs(title = " ", x = " ", y = "log(price)")+
+  theme_minimal()+
+  theme(text = element_text(family = "LM Roman 10"))
+
+ggplot(data=data_btc, aes(index(data_btc),Close)) +
+  geom_line(data = diff(log(data_btc)))+
+  labs(title = " ", x = " ", y = "diff(log(price))")+
+  theme_minimal()+
+  theme(text = element_text(family = "LM Roman 10"))
+
+ggplot(data=norm_data, aes(index(norm_data),Norma)) +
+  geom_line(data = norm_data)+
+  labs(title = " ", x = " ", y = "Norma L1")+
+  theme_minimal()+
+  theme(text = element_text(family = "LM Roman 10"))
+
 c1 = norm_data + abs(diff(norm_data))
 c1 <- na.fill(c1,"extend")
 colnames(c1) <- "C1"
@@ -74,8 +105,9 @@ ggplot(data=c1, aes(index(c1),C1)) +
 ```
 
 ### Creación de cluster de riesgo
+
 ```{r}
-eje_x <- Normalize_Data(log(data))
+eje_x <- Normalize_Data(log(data_btc))
 eje_y <- Normalize_Data(c1)
 
 agrupamientos <- as.data.frame(cbind(eje_x,eje_y))
@@ -83,7 +115,18 @@ agrupamientos <- na.omit(agrupamientos)
 colnames(agrupamientos) <- c("log price", "C1 norm")
 rownames(agrupamientos) <- format(index(eje_y),"%d/%b/%y")
 
-write.csv(agrupamientos,"/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/C1_entropy_norm.csv", row.names = T)
+```
+
+```{r}
+write.csv(agrupamientos,"C1_entropy_norm.csv", row.names = T)
+```
+
+```{r}
+#fviz_nbclust(agrupamientos, kmeans, method = "wss")
+#geom_vline(xintercept = 3, linetype = 2)
+```
+
+```{r}
 cl <- kmeans(agrupamientos, 3)
 
 ggcluster <- fviz_cluster(cl, data = agrupamientos)
@@ -91,13 +134,14 @@ ggcluster + theme_minimal() + theme(text = element_text(family = "LM Roman 10"))
 ```
 
 ## Alerta en datos originales
+
 Las alertas de caída se encuentran en las subidas repentinas del precio para luego caer en picada, es decir, no hay un pequeño valle antes de la caída.
 
 ```{r}
 dates <- index(eje_y)
 new_dates <- tail(dates, length(eje_y))
 grups.xts <- xts(agrupamientos, order.by = new_dates)
-final <- merge(data,grups.xts, all = FALSE)
+final <- merge(data_btc,grups.xts, all = FALSE)
 final <- as.data.frame(final)
 cluster_TDA <- cbind(final, cl$cluster)
 colnames(cluster_TDA)[4] <- "Cluster"
@@ -107,15 +151,15 @@ write.csv(cluster_TDA,"cluster_TDA.csv", row.names = T)
 
 cluster_minicrash <- analisis_cluster(cl$cluster, eje_y)
 cat("El cluster de riesgo es el cluster: ",cluster_minicrash)
-
-
 cluster_TDA$Dates <- as.Date(new_dates, "%m/%d/%Y")
+
+title_plot <- paste(date_start, date_end, sep = "/")
 
 alerta_original <- ggplot(cluster_TDA, aes(Dates, Close, colour = factor(Cluster))) + 
   geom_point() +
   geom_line(data = cluster_TDA, color = "black", alpha = 0.4) +
   theme_minimal()+
-  labs(title = " ", x = " ", y = "Precio en USD")+
+  labs(title = title_plot, x = " ", y = "Precio en USD")+
   guides(colour = guide_legend(title = " ", title.position = "left"))+
   scale_color_discrete(
     labels = c("2" = "Alerta de caída fuerte"), breaks = c(2)
