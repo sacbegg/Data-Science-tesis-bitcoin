@@ -32,8 +32,10 @@ btc_median <- as.xts(btc_median)
 index(btc_median) <- as.Date(index(btc_median))
 btc_median <- btc_median['/2022-04-14']
 
+head(btc_median)
+
 # Carga de archivo CSV con metricas de la blockchain
-btc_blockchain <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-coinMetricsV2.csv', sep = ",", header =TRUE)
+btc_blockchain <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-coinMetrics.csv', sep = ",", header =TRUE)
 btc_blockchain <- as.xts(btc_blockchain)
 index(btc_blockchain) <- as.Date(index(btc_blockchain))
 btc_blockchain <- subset(btc_blockchain, select = -PriceUSD)
@@ -49,7 +51,11 @@ if (sum(is.na(btc_median_cmetric)) > 0){
 # Remplazo de ceros para evitar errores de calculo
 
 btc_median_cmetric[btc_median_cmetric == 0] = 0.1
+```
 
+```{r}
+library(ggcorrplot)
+ggcorrplot(cor(btc_median))
 ```
 
 ```{r}
@@ -60,16 +66,16 @@ write.csv(btc_median_cmetric,"/Users/sacbe/Documents/Tesis licenciatura/Algoritm
 ## Visualización de los datos
 
 ```{r}
-btc_plot <- ggplot(btc_median_cmetric, aes(index(btc_median_cmetric), Close)) +
+print(BoxCox.lambda(btc_median_cmetric$Close))
+
+diff_price <- diff(btc_median_cmetric$Close)
+
+btc_plot <- ggplot(btc_median_cmetric, aes(index(btc_median_cmetric) , Close)) +
   geom_line(data = btc_median_cmetric, color = "black") +
   theme_minimal() +
-  labs(title = "Bitcoin precio de cierre en dólares", x = " ", y = "")+
+  #labs(title = "Bitcoin precio de cierre en dólares", x = " ", y = "")+
+  labs(x = "")+
   theme(text = element_text(family = "LM Roman 10"))
-
-btc_plot
-
-btc_plot + geom_vline(xintercept = as.Date("2017-01-01"), col = "red")+ geom_vline(xintercept = as.Date("2018-01-01"), col = "red")+ geom_vline(xintercept = as.Date("2019-01-01"), col = "red")+ geom_vline(xintercept = as.Date("2020-01-01"), col = "red")+ geom_vline(xintercept = as.Date("2021-04-01"), col = "red")+ geom_vline(xintercept = as.Date(max(index(btc_median_cmetric))), col = "red")
-
 
 btc_plot
 ```
@@ -555,3 +561,8 @@ ggplot(data=train$Close, aes(index(train$Close),Close)) +
 cat("RMSE: ",rmse(na.approx(train$Close - rff.btc)))
 cat("Theil's U: ",TheilU(train$Close, rff.btc))
 ```
+```{r}
+RMSE
+ACC
+```
+

@@ -55,13 +55,15 @@ Entre más grande sea el número de datos, menos exactitud tendrá el algoritmo.
 ```{r}
 BTC <- read.zoo('/Users/sacbe/Documents/Tesis licenciatura/Algoritmos/cleaning/BTC-USD.csv', sep = ",", header =TRUE)
 data <- as.xts(BTC$Close)
-date_start <- "2017-01-01" #min(index(btc_median_cmetric))
+#date_start <- "2017-01-01" #min(index(btc_median_cmetric))
+date_start <- "2022-01-13"
 date_end <- max(index(btc_median_cmetric))
 data <- subset(data, index(data) > as.Date(date_start) & index(data) < as.Date(date_end))
 colnames(data) <- c("Close")
 data_btc <- na.fill(data,"extend")
 
 head(data_btc)
+tail(data_btc)
 ```
 
 ## Análisis topológico de datos
@@ -162,7 +164,7 @@ alerta_original <- ggplot(cluster_TDA, aes(Dates, Close, colour = factor(Cluster
   labs(title = title_plot, x = " ", y = "Precio en USD")+
   guides(colour = guide_legend(title = " ", title.position = "left"))+
   scale_color_discrete(
-    labels = c("2" = "Alerta de caída fuerte"), breaks = c(2)
+    labels = c("1" = "Alerta de caída fuerte"), breaks = c(1)
     )+
   theme(legend.position = "bottom", legend.text = element_text(size = 12), text = element_text(family = "LM Roman 10"))
 
@@ -175,7 +177,7 @@ alerta_log <- ggplot(cluster_TDA, aes(Dates, log(Close), colour = factor(Cluster
   labs(title = " ", x = " ", y = "Precio en log(USD)")+
   guides(colour = guide_legend(title = " ", title.position = "left"))+
   scale_color_discrete(
-    labels = c("2" = "Alerta de caída fuerte"), breaks = c(2)
+    labels = c("1" = "Alerta de caída fuerte"), breaks = c(1)
     )+
   theme(legend.position = "bottom", legend.text = element_text(size = 12), text = element_text(family = "LM Roman 10"))
 
