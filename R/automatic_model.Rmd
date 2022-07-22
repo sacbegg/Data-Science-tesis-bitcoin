@@ -74,7 +74,8 @@ btc_plot <- ggplot(btc_median_cmetric, aes(index(btc_median_cmetric) , Close)) +
   geom_line(data = btc_median_cmetric, color = "black") +
   theme_minimal() +
   #labs(title = "Bitcoin precio de cierre en dólares", x = " ", y = "")+
-  labs(x = "")+
+  ggtitle("Bitcoin precio de cierre en dólares")+
+  labs(x = "Años", y="Precio en dólares")+
   theme(text = element_text(family = "LM Roman 10"))
 
 btc_plot
@@ -511,7 +512,7 @@ colnames(rff.btc.df) <- "Close"
 ggplot(data=test$Close, aes(index(test$Close),Close)) +
   geom_point(data = test$Close, aes(colour = "Original"))+
   geom_line(data = rff.btc.df, aes(colour = "Predicción"))+
-  labs(title = "Random Forest", x = " ", y = " ")+
+  labs(title = "Random Forest", y = "Precio en dólares", x = "Fecha")+
   theme_minimal()+
   theme(text = element_text(family = "LM Roman 10"))+
   scale_colour_manual(name=" ",
